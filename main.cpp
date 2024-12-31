@@ -1,24 +1,28 @@
 #include <iostream>
 #include <fstream>
+#include <sstream>
 #include <cstring>
 #include <unistd.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include <sstream>
+#include <pthread.h>  // Include pthread library for multi-threading
 
 #define PORT 8080
 #define WWW_DIR "www"  // Directory where the HTML files are stored
 
 // Function to handle client requests
-void handleClient(int clientSocket) {
+void* handleClient(void* clientSocketPtr) {
+    int clientSocket = *((int*)clientSocketPtr);
+    delete (int*)clientSocketPtr;  // Clean up the allocated memory for client socket
+
     char buffer[1024];
 
     // Read the request from the client
     int bytesRead = read(clientSocket, buffer, sizeof(buffer) - 1);
     if (bytesRead < 0) {
         std::cerr << "Error reading from client socket" << std::endl;
-        return;
+        return nullptr;
     }
 
     buffer[bytesRead] = '\0';  // Null terminate the buffer to make it a string
@@ -61,6 +65,8 @@ void handleClient(int clientSocket) {
 
     // Close the client socket after responding
     close(clientSocket);
+
+    return nullptr;
 }
 
 int main() {
@@ -87,14 +93,14 @@ int main() {
     }
 
     // Listen for incoming connections
-    if (listen(serverSocket, 1) < 0) {
+    if (listen(serverSocket, 7) < 0) {
         std::cerr << "Error listening on socket" << std::endl;
         return 1;
     }
 
-    std::cout << "Server listening on port 80..." << std::endl;
+    std::cout << "Server listening on port 8080..." << std::endl;
 
-    // Accept incoming connections
+    // Accept incoming connections and handle them with threads
     while (true) {
         int clientSocket = accept(serverSocket, (struct sockaddr *)&clientAddr, &clientAddrLen);
         if (clientSocket < 0) {
@@ -102,8 +108,16 @@ int main() {
             continue;
         }
 
-        // Handle the client request
-        handleClient(clientSocket);
+        // Create a new thread to handle the client
+        pthread_t threadId;
+        int* clientSocketPtr = new int(clientSocket);  // Dynamically allocate memory for clientSocket
+        if (pthread_create(&threadId, nullptr, handleClient, (void*)clientSocketPtr) != 0) {
+            std::cerr << "Error creating thread" << std::endl;
+            delete clientSocketPtr;  // Clean up memory if thread creation fails
+        } else {
+            // Detach the thread so it can clean up itself after it finishes
+            pthread_detach(threadId);
+        }
     }
 
     // Close the server socket (not reached due to the infinite loop)
