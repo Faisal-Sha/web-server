@@ -7,9 +7,9 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <pthread.h>  // Include pthread library for multi-threading
+#include <filesystem>  // C++17 for path handling
 
-#define PORT 8080
-#define WWW_DIR "www"  // Directory where the HTML files are stored
+#define PORT 8089
 
 // Function to handle client requests
 void* handleClient(void* clientSocketPtr) {
@@ -40,11 +40,31 @@ void* handleClient(void* clientSocketPtr) {
         requestedPath = "/index.html";  // Default to index.html for "/"
     }
 
-    // Construct the full path to the file
-    std::string filePath = WWW_DIR + requestedPath;
+    // Ensure the requested path is within the www directory
+    if (requestedPath.find("..") != std::string::npos) {
+        // Prevent directory traversal
+        std::cerr << "Attempted path traversal attack: " << requestedPath << std::endl;
+        close(clientSocket);
+        return nullptr;
+    }
+
+    // Build the full path to the requested file
+    // std::filesystem::path fullPath = std::filesystem::canonical("www" + requestedPath);
+    std::filesystem::path fullPath = "www" + requestedPath;
+
+    // Before the check for the directory:
+    std::cout << "Resolved full path: " << fullPath << std::endl;
+
+    // Ensure the requested file is within the www directory
+    if (fullPath.string().find("www") != 0) {
+        // File is outside the www directory
+        std::cerr << "File outside of www directory: " << fullPath << std::endl;
+        close(clientSocket);
+        return nullptr;
+    }
 
     // Open the requested file
-    std::ifstream file(filePath);
+    std::ifstream file(fullPath);
     std::string response;
 
     if (file.is_open()) {
@@ -69,10 +89,28 @@ void* handleClient(void* clientSocketPtr) {
     return nullptr;
 }
 
-int main() {
+// This function checks if the requested file is inside the "www" directory
+bool isFileInDirectory(const std::string& requestedFile, const std::string& baseDir) {
+    std::filesystem::path basePath(baseDir);
+    std::filesystem::path fullPath(requestedFile);
+
+    // Convert both paths to absolute paths (just normalizing the relative paths)
+    fullPath = std::filesystem::absolute(fullPath);
+    basePath = std::filesystem::absolute(basePath);
+
+    // Check if the file is within the base directory
+    return fullPath.string().find(basePath.string()) == 0;
+}
+
+int main(int argc, char* argv[]) {
     int serverSocket;
     struct sockaddr_in serverAddr, clientAddr;
     socklen_t clientAddrLen = sizeof(clientAddr);
+
+    std::string wwwDir = "www";  // Default www directory
+    if (argc > 1) {
+        wwwDir = argv[1];  // Allow user to specify a different directory
+    }
 
     // Create the socket (IPv4, TCP)
     serverSocket = socket(AF_INET, SOCK_STREAM, 0);
