@@ -1,11 +1,14 @@
 #include <iostream>
+#include <fstream>
 #include <cstring>
 #include <unistd.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <sstream>
 
 #define PORT 8080
+#define WWW_DIR "www"  // Directory where the HTML files are stored
 
 // Function to handle client requests
 void handleClient(int clientSocket) {
@@ -29,9 +32,29 @@ void handleClient(int clientSocket) {
     size_t endPos = request.find(' ', pos + 1);  // Find the second space (end of the URL)
 
     std::string requestedPath = request.substr(pos + 1, endPos - pos - 1);
+    if (requestedPath == "/") {
+        requestedPath = "/index.html";  // Default to index.html for "/"
+    }
 
-    // Prepare the HTTP response
-    std::string response = "HTTP/1.1 200 OK\r\n\r\nRequested path: " + requestedPath + "\r\n";
+    // Construct the full path to the file
+    std::string filePath = WWW_DIR + requestedPath;
+
+    // Open the requested file
+    std::ifstream file(filePath);
+    std::string response;
+
+    if (file.is_open()) {
+        // File found, read the content and send it as response
+        std::stringstream buffer;
+        buffer << file.rdbuf();  // Read the entire file into a string
+
+        // Prepare the HTTP response with the file content
+        response = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n" + buffer.str();
+    } else {
+        // File not found, return 404 response
+        response = "HTTP/1.1 404 Not Found\r\n\r\n"
+                   "<html><body><h1>404 Not Found</h1></body></html>";
+    }
 
     // Send the HTTP response
     send(clientSocket, response.c_str(), response.length(), 0);
@@ -69,7 +92,7 @@ int main() {
         return 1;
     }
 
-    std::cout << "Server listening on port 8080..." << std::endl;
+    std::cout << "Server listening on port 80..." << std::endl;
 
     // Accept incoming connections
     while (true) {
